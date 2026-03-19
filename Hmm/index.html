@@ -1,0 +1,353 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>HMM Web Mobility Prediction</title>
+    <script type="text/javascript" src="https://unpkg.com/vis-network/standalone/umd/vis-network.min.js"></script>
+    <style>
+        :root {
+            --bg-dark: #0D1117;
+            --panel-bg: #161b22;
+            --cyan: #00FFFF;
+            --green: #00FF00;
+            --red: #ff4444;
+            --yellow: #ffff00;
+            --text-light: #c9d1d9;
+        }
+        body {
+            margin: 0; padding: 0; background-color: var(--bg-dark);
+            color: var(--text-light); font-family: 'Segoe UI', sans-serif;
+            display: flex; flex-direction: column; height: 100vh;
+        }
+        header {
+            text-align: center; padding: 15px; background-color: var(--panel-bg);
+            border-bottom: 2px solid var(--cyan);
+        }
+        h1 { margin: 0; color: var(--cyan); font-size: 24px; text-transform: uppercase; }
+        
+        .main-container { display: flex; flex: 1; overflow: hidden; }
+        
+        /* LEFT PANEL: CONTROLS & TIME */
+        .controls-panel {
+            width: 320px; padding: 20px; background-color: var(--panel-bg);
+            border-right: 1px solid #333; display: flex; flex-direction: column;
+        }
+        .status-box {
+            background: #21262d; padding: 15px; border-radius: 8px; border-left: 4px solid var(--cyan);
+            margin-bottom: 20px; font-family: monospace; font-size: 15px;
+        }
+        .btn-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 20px;}
+        button {
+            background-color: transparent; color: var(--cyan); border: 1px solid var(--cyan); 
+            padding: 12px; border-radius: 6px; font-weight: bold; cursor: pointer; transition: all 0.3s;
+        }
+        button:hover:not(:disabled) { background-color: rgba(0, 255, 255, 0.2); }
+        button:disabled { border-color: #555; color: #555; cursor: not-allowed; }
+        .btn-exit { grid-column: span 2; border-color: var(--red); color: var(--red); }
+        .btn-exit:hover:not(:disabled) { background-color: rgba(255, 0, 0, 0.2); }
+        
+        .time-panel { margin-top: auto; }
+        .time-item { display: flex; justify-content: space-between; padding: 8px 0; border-bottom: 1px solid #333; }
+
+        /* RIGHT PANEL: CONSOLE & FINAL DASHBOARD */
+        .display-panel { flex: 1; display: flex; flex-direction: column; padding: 20px; overflow-y: auto; }
+        
+        /* CONSOLE SIMULATION VIEW */
+        #console-view {
+            background-color: #0c0c0c; border: 1px solid #333; border-radius: 8px;
+            padding: 20px; overflow-x: auto; flex: 1; margin-bottom: 20px;
+        }
+        pre { font-family: 'Consolas', 'Courier New', monospace; font-size: 14.5px; color: #d4d4d4; margin: 0; line-height: 1.4; }
+        
+        /* FINAL DASHBOARD VIEW */
+        #final-dashboard { display: none; }
+        #network-graph {
+            width: 100%; height: 500px; background-color: #0c0c0c;
+            border: 1px solid #333; border-radius: 8px; margin-bottom: 20px;
+        }
+        
+        /* FINAL TABLE STYLING */
+        table { width: 100%; border-collapse: collapse; font-family: monospace; font-size: 15px; }
+        th, td { border: 1px solid #444; padding: 12px; text-align: center; }
+        th { background-color: #21262d; color: var(--text-light); }
+        td { background-color: var(--bg-dark); }
+        .nb { color: white; font-weight: bold; }
+        .next { color: var(--yellow); }
+        .prev { color: var(--red); }
+        .somme-cell { background-color: #161b22; }
+    </style>
+</head>
+<body>
+
+    <header>
+        <h1>HMM Web Mobility Prediction Dashboard</h1>
+    </header>
+
+    <div class="main-container">
+        <div class="controls-panel">
+            <div class="status-box">
+                <div>Where you from: <span id="lbl-prev" style="color:#aaa">None</span></div>
+                <div style="margin-top: 10px;">Where you are : <span id="lbl-curr" style="color:var(--cyan)">0</span></div>
+            </div>
+
+            <h3 style="margin-bottom: 10px; font-size: 14px; color: #888;">Controls:</h3>
+            <div class="btn-grid" id="button-container">
+                <button onclick="navigate(0)">Page 0</button>
+                <button onclick="navigate(1)">Page 1</button>
+                <button onclick="navigate(2)">Page 2</button>
+                <button onclick="navigate(3)">Page 3</button>
+                <button onclick="navigate(4)">Page 4</button>
+                <button class="btn-exit" onclick="exitSystem()">5 (Quit & Show Graph)</button>
+            </div>
+
+            <div class="time-panel">
+                <h3 style="color:var(--cyan); border-bottom:1px solid var(--cyan); padding-bottom:5px; font-size: 16px;">Time Spent (30s/action)</h3>
+                <div id="time-container"></div>
+                <div style="margin-top: 15px; font-weight: bold; color: var(--yellow);">
+                    Total Session Time: <span id="lbl-total-time">0</span> sec
+                </div>
+            </div>
+        </div>
+
+        <div class="display-panel">
+            
+            <div id="console-view">
+                <pre id="console-text"></pre>
+            </div>
+
+            <div id="final-dashboard">
+                <h2 style="margin-top:0; color:var(--cyan); text-align:center;">Final Markov Chain Interactive Graph</h2>
+                <div id="network-graph"></div>
+                
+                <h2 style="color:var(--cyan); text-align:center;">Final Transition Matrix Table</h2>
+                <div id="table-container"></div>
+            </div>
+
+        </div>
+    </div>
+
+    <script>
+        // ==========================================
+        // 1. OBJECT ORIENTED ARCHITECTURE
+        // ==========================================
+        class Cellule {
+            constructor() {
+                this.nb = 0;
+                this.statNext = 0.0;
+                this.statPrev = 0.0;
+            }
+        }
+
+        class MarkovModel {
+            constructor(nbStates) {
+                this.nbStates = nbStates;
+                this.size = nbStates + 1;
+                this.matrix = Array.from({length: this.size}, () => Array.from({length: this.size}, () => new Cellule()));
+                
+                this.timeSpent = new Array(nbStates).fill(0);
+                this.timeSpent[0] = 30; // User starts on page 0
+                this.totalTime = 30;
+            }
+
+            addTransition(prev, curr) {
+                this.matrix[prev][curr].nb += 1;
+                this.matrix[prev][this.nbStates].nb += 1; 
+                this.matrix[this.nbStates][curr].nb += 1; 
+
+                for (let k = 0; k < this.nbStates; k++) {
+                    if (this.matrix[prev][this.nbStates].nb > 0) {
+                        this.matrix[prev][k].statNext = this.matrix[prev][k].nb / this.matrix[prev][this.nbStates].nb;
+                    }
+                    if (this.matrix[this.nbStates][curr].nb > 0) {
+                        this.matrix[k][curr].statPrev = this.matrix[k][curr].nb / this.matrix[this.nbStates][curr].nb;
+                    }
+                }
+                this.timeSpent[curr] += 30;
+                this.totalTime += 30;
+            }
+        }
+
+        // ==========================================
+        // 2. SYSTEM LOGIC & REPL SIMULATION
+        // ==========================================
+        const nbStates = 5;
+        const hmm = new MarkovModel(nbStates);
+        let currentPage = 0; 
+        let previousPage = -1;
+        let consoleLog = "=== Web Navigation Markov Model ===\n\n";
+
+        function initSystem() {
+            renderTime();
+            printPrompt(previousPage, currentPage);
+        }
+
+        function printPrompt(prev, curr) {
+            let pStr = prev === -1 ? "None" : prev;
+            consoleLog += `Where you from: ${pStr}\n`;
+            consoleLog += `Where you are:  ${curr}\n`;
+            consoleLog += `Where you go (enter 0-4 to transition, 5 to quit): `;
+            updateConsole();
+        }
+
+        function updateConsole() {
+            let pre = document.getElementById('console-text');
+            pre.innerText = consoleLog;
+            let container = document.getElementById('console-view');
+            container.scrollTop = container.scrollHeight;
+        }
+
+        function navigate(nextPage) {
+            // Append the user's choice to the same line
+            consoleLog += `${nextPage}\n\n`;
+
+            // Update Math
+            hmm.addTransition(currentPage, nextPage);
+            previousPage = currentPage;
+            currentPage = nextPage;
+
+            // Update UI Labels
+            document.getElementById('lbl-prev').innerText = previousPage;
+            document.getElementById('lbl-curr').innerText = currentPage;
+            renderTime();
+
+            // Print ASCII Table
+            consoleLog += generateAsciiTable() + "\n\n";
+
+            // Print Next Prompt
+            printPrompt(previousPage, currentPage);
+        }
+
+        function exitSystem() {
+            consoleLog += `5\nGenerating Markov Dashboard (Graph + Table) and exiting...\n`;
+            updateConsole();
+
+            // Lock controls
+            document.getElementById('lbl-curr').innerText = "EXITED";
+            document.getElementById('lbl-curr').style.color = "var(--red)";
+            document.querySelectorAll('#button-container button').forEach(b => b.disabled = true);
+
+            // Transition UI
+            setTimeout(() => {
+                document.getElementById('console-view').style.display = "none";
+                document.getElementById('final-dashboard').style.display = "block";
+                renderFinalVisuals();
+            }, 800); // Slight delay to let them read the exit message
+        }
+
+        // ==========================================
+        // 3. ASCII TABLE GENERATOR
+        // ==========================================
+        function generateAsciiTable() {
+            let out = "--- Transition Matrix (Matches Prof's Table) ---\n";
+            out += "From \\ To | Page 0          | Page 1          | Page 2          | Page 3          | Page 4          | Somme\n";
+            let sep = "----------+------------------+------------------+------------------+------------------+------------------+-------\n";
+            out += sep;
+
+            for(let i=0; i<nbStates; i++) {
+                out += `Page ${i}    | `;
+                for(let j=0; j<nbStates; j++) {
+                    let cell = hmm.matrix[i][j];
+                    let nbStr = cell.nb.toString().padEnd(2, ' ');
+                    let yStr = Math.round(cell.statNext * 100).toString().padStart(3, ' ');
+                    let rStr = Math.round(cell.statPrev * 100).toString().padStart(3, ' ');
+                    out += `Nb=${nbStr} Y:${yStr}% R:${rStr}% | `;
+                }
+                out += `Nb=${hmm.matrix[i][nbStates].nb}\n`;
+            }
+            out += sep;
+            out += "Somme     | ";
+            for(let j=0; j<nbStates; j++) {
+                let nbStr = hmm.matrix[nbStates][j].nb.toString().padEnd(16, ' ');
+                out += `Nb=${nbStr} | `;
+            }
+            out += "-\n";
+            return out.trim();
+        }
+
+        function renderTime() {
+            let html = "";
+            for(let i=0; i<nbStates; i++) {
+                html += `<div class="time-item"><span>Page ${i}</span> <span>${hmm.timeSpent[i]}s</span></div>`;
+            }
+            document.getElementById('time-container').innerHTML = html;
+            document.getElementById('lbl-total-time').innerText = hmm.totalTime;
+        }
+
+        // ==========================================
+        // 4. FINAL DASHBOARD RENDERING (VIS.JS)
+        // ==========================================
+        function renderFinalVisuals() {
+            // 1. Setup Nodes in a FIXED CIRCLE to prevent text overlapping!
+            let nodesDataSet = new vis.DataSet();
+            let radius = 180;
+            for(let i=0; i<nbStates; i++) {
+                // Calculate perfect pentagon coordinates
+                let angle = (i * 2 * Math.PI / nbStates) - (Math.PI / 2);
+                let x = Math.cos(angle) * radius;
+                let y = Math.sin(angle) * radius;
+                
+                nodesDataSet.add({
+                    id: i, label: 'Page '+i, x: x, y: y, fixed: true, 
+                    shape: 'circle', color: {background: '#1f77b4', border: '#FFF'}, font: {color: 'white', size: 18}
+                });
+            }
+
+            // 2. Setup Edges
+            let edgesDataSet = new vis.DataSet();
+            for (let i = 0; i < nbStates; i++) {
+                for (let j = 0; j < nbStates; j++) {
+                    let cell = hmm.matrix[i][j];
+                    if (cell.nb > 0) {
+                        let pctNext = Math.round(cell.statNext * 100);
+                        let pctPrev = Math.round(cell.statPrev * 100);
+                        
+                        edgesDataSet.add({
+                            from: i, to: j,
+                            label: `N: ${pctNext}%\nP: ${pctPrev}%`,
+                            arrows: 'to',
+                            color: { color: '#AAAAAA', highlight: '#00FF00' },
+                            width: Math.max(1, cell.statNext * 6),
+                            font: { color: '#00FF00', size: 14, background: 'rgba(0,0,0,0.9)', align: 'horizontal' },
+                            smooth: { type: 'curvedCW', roundness: 0.2 }
+                        });
+                    }
+                }
+            }
+
+            let container = document.getElementById('network-graph');
+            let data = { nodes: nodesDataSet, edges: edgesDataSet };
+            let options = { physics: false }; // Disable physics because we manually positioned them in a circle!
+            new vis.Network(container, data, options);
+
+            // 3. Render Final HTML Table
+            let html = `<table><tr><th>From \\ To</th>`;
+            for (let j = 0; j < nbStates; j++) html += `<th>Page ${j}</th>`;
+            html += `<th class="somme-cell">Somme (Row)</th></tr>`;
+
+            for (let i = 0; i < nbStates; i++) {
+                html += `<tr><th>Page ${i}</th>`;
+                for (let j = 0; j < nbStates; j++) {
+                    let cell = hmm.matrix[i][j];
+                    html += `<td>
+                        <div class="nb">Nb = ${cell.nb}</div>
+                        <div class="next">Next: ${Math.round(cell.statNext * 100)}%</div>
+                        <div class="prev">Prev: ${Math.round(cell.statPrev * 100)}%</div>
+                    </td>`;
+                }
+                html += `<th class="somme-cell">Nb = ${hmm.matrix[i][nbStates].nb}</th></tr>`;
+            }
+
+            html += `<tr><th class="somme-cell">Somme (Col)</th>`;
+            for (let j = 0; j < nbStates; j++) {
+                html += `<th class="somme-cell">Nb = ${hmm.matrix[nbStates][j].nb}</th>`;
+            }
+            html += `<th class="somme-cell">-</th></tr></table>`;
+
+            document.getElementById('table-container').innerHTML = html;
+        }
+
+        window.onload = initSystem;
+    </script>
+</body>
+</html>

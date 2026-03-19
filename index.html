@@ -1,0 +1,522 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>IoT Positioning Ecosystem</title>
+    <script src="https://cdn.plot.ly/plotly-2.27.0.min.js"></script>
+    <script src="https://unpkg.com/vis-network/standalone/umd/vis-network.min.js"></script>
+    <style>
+        :root {
+            --bg-dark: #0D1117;
+            --panel-bg: #161b22;
+            --cyan: #00FFFF;
+            --green: #00FF00;
+            --red: #ff4444;
+            --yellow: #ffff00;
+            --text-light: #c9d1d9;
+            --sidebar-width: 260px;
+        }
+        body {
+            margin: 0; padding: 0; background-color: var(--bg-dark);
+            color: var(--text-light); font-family: 'Segoe UI', Tahoma, sans-serif;
+            display: flex; height: 100vh; overflow: hidden;
+        }
+        
+        /* --- SIDEBAR NAVIGATION --- */
+        .sidebar {
+            width: var(--sidebar-width); background-color: var(--panel-bg);
+            border-right: 2px solid var(--cyan); display: flex; flex-direction: column;
+            box-shadow: 4px 0 15px rgba(0,255,255,0.1); z-index: 10;
+        }
+        .logo-area { padding: 20px; text-align: center; border-bottom: 1px solid #333; }
+        .logo-area h2 { color: var(--cyan); margin: 0; font-size: 20px; letter-spacing: 1px; }
+        .logo-area p { color: #888; font-size: 12px; margin-top: 5px; }
+        
+        .nav-menu { display: flex; flex-direction: column; padding: 15px 0; }
+        .nav-btn {
+            background: none; border: none; color: var(--text-light); text-align: left;
+            padding: 15px 25px; font-size: 16px; cursor: pointer; transition: all 0.3s;
+            border-left: 4px solid transparent; font-weight: bold;
+        }
+        .nav-btn:hover { background-color: rgba(0,255,255,0.05); }
+        .nav-btn.active { background-color: rgba(0,255,255,0.1); border-left: 4px solid var(--cyan); color: var(--cyan); }
+        
+        /* --- MAIN CONTENT AREA --- */
+        .main-content { flex: 1; display: flex; flex-direction: column; overflow-y: auto; position: relative; }
+        .header { padding: 20px 30px; background-color: #0a0e14; border-bottom: 1px solid #222; }
+        .header h1 { margin: 0; font-size: 24px; color: #fff; }
+        
+        .view-section { display: none; padding: 30px; flex: 1; animation: fadeIn 0.5s; }
+        .view-section.active { display: flex; flex-direction: column; }
+        @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+
+        /* --- HOME VIEW --- */
+        .home-card { background: var(--panel-bg); border: 1px solid #333; border-radius: 8px; padding: 30px; margin-bottom: 20px; box-shadow: 0 4px 10px rgba(0,0,0,0.5); }
+        .home-card h2 { color: var(--cyan); margin-top: 0; border-bottom: 1px solid #333; padding-bottom: 10px; }
+        .team-list { display: flex; gap: 20px; font-size: 18px; color: var(--green); font-weight: bold; }
+        .uni-details { color: #aaa; line-height: 1.6; }
+
+        /* --- MODULE STYLES (N-Lat & Fing) --- */
+        .control-bar { display: flex; gap: 20px; background: var(--panel-bg); padding: 15px; border-radius: 8px; border: 1px solid #333; margin-bottom: 20px; align-items: center; }
+        .control-bar select { background: #0D1117; color: var(--cyan); border: 1px solid var(--cyan); padding: 8px 15px; border-radius: 4px; font-weight: bold; outline: none; }
+        .run-btn { background: rgba(0,255,255,0.1); color: var(--cyan); border: 1px solid var(--cyan); padding: 8px 20px; border-radius: 4px; font-weight: bold; cursor: pointer; transition: 0.3s; }
+        .run-btn:hover { background: var(--cyan); color: #000; }
+        
+        .results-box { background: #0a0a0a; border: 1px solid #333; padding: 15px; border-radius: 8px; font-family: monospace; color: #fff; margin-bottom: 20px; }
+        .highlight-text { color: var(--green); font-size: 1.1em; }
+        
+        .plot-container { flex: 1; background: #000; border: 1px solid #333; border-radius: 8px; min-height: 500px; }
+
+        /* --- HMM STYLES (Reused & Scoped) --- */
+        .hmm-container { display: flex; gap: 20px; flex: 1; }
+        .hmm-controls { width: 280px; display: flex; flex-direction: column; gap: 15px; }
+        .hmm-display { flex: 1; display: flex; flex-direction: column; gap: 15px; }
+        .btn-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+        .hmm-btn { background: transparent; color: var(--cyan); border: 1px solid var(--cyan); padding: 10px; border-radius: 4px; cursor: pointer; }
+        .hmm-btn:hover:not(:disabled) { background: rgba(0,255,255,0.2); }
+        .hmm-btn:disabled { border-color: #555; color: #555; cursor: not-allowed; }
+        .hmm-exit { grid-column: span 2; border-color: var(--red); color: var(--red); }
+        .hmm-exit:hover:not(:disabled) { background: rgba(255,0,0,0.2); }
+        #console-view { background: #0c0c0c; border: 1px solid #333; padding: 15px; border-radius: 8px; overflow-x: auto; flex: 1; font-family: monospace; color: #d4d4d4; }
+        #hmm-final-dashboard { display: none; flex-direction: column; gap: 15px; }
+        #hmm-network { height: 350px; background: #0c0c0c; border: 1px solid #333; border-radius: 8px; }
+        .hmm-table { width: 100%; border-collapse: collapse; font-family: monospace; font-size: 13px; text-align: center; }
+        .hmm-table th, .hmm-table td { border: 1px solid #444; padding: 8px; }
+        .hmm-table th { background-color: #21262d; }
+    </style>
+</head>
+<body>
+
+    <div class="sidebar">
+        <div class="logo-area">
+            <h2>IoT ECOSYSTEM</h2>
+            <p>PSTA Project 2026</p>
+        </div>
+        <div class="nav-menu">
+            <button class="nav-btn active" onclick="switchView('home')">Home / Overview</button>
+            <button class="nav-btn" onclick="switchView('nlat')">1. N-Lateration (3D)</button>
+            <button class="nav-btn" onclick="switchView('fing')">2. Fingerprinting (2D)</button>
+            <button class="nav-btn" onclick="switchView('hmm')">3. Markov Models</button>
+        </div>
+    </div>
+
+    <div class="main-content">
+        <div class="header">
+            <h1 id="header-title">Welcome to the Positioning Ecosystem</h1>
+        </div>
+
+        <div id="view-home" class="view-section active">
+            <div class="home-card">
+                <h2>Project Information</h2>
+                <p class="uni-details">
+                    <strong>Master 1 IoT</strong><br>
+                    Université Marie et Louis Pasteur, UFR STGI<br>
+                    Montbéliard, France (March 2026)<br>
+                    <strong>Module:</strong> Positioning Systems, Techniques, and Applications (PSTA)
+                </p>
+            </div>
+            <div class="home-card">
+                <h2>The Development Team</h2>
+                <div class="team-list">
+                    <span>👨‍💻 Ahmed Almuharaq</span>
+                    <span>👨‍💻 Amine</span>
+                    <span>👩‍💻 Oumnia</span>
+                </div>
+            </div>
+            <div class="home-card">
+                <h2>System Modules</h2>
+                <ul class="uni-details" style="font-size: 16px;">
+                    <li><strong style="color:var(--cyan)">N-Lateration:</strong> A mathematical brute-force spatial walk algorithm to find a 3D coordinate based on signal attenuation distances.</li>
+                    <li><strong style="color:var(--cyan)">Static Fingerprinting:</strong> An indoor localization technique matching live RSSI vectors to an offline grid using K-Nearest Neighbors and Inverse Distance Weighting.</li>
+                    <li><strong style="color:var(--cyan)">Hidden Markov Models (HMM):</strong> A predictive intelligence layer calculating forward and backward probabilities to anticipate user mobility state transitions.</li>
+                </ul>
+            </div>
+        </div>
+
+        <div id="view-nlat" class="view-section">
+            <div class="control-bar">
+                <label>Number of Anchors (N):</label>
+                <select id="nlat-n">
+                    <option value="4">N = 4 (E0, E1, E2, E3)</option>
+                    <option value="3">N = 3 (E1, E2, E3)</option>
+                </select>
+                <label>Interval Search (Step):</label>
+                <select id="nlat-step">
+                    <option value="1.0">1.0 (Fast, Low Accuracy)</option>
+                    <option value="0.5">0.5 (Balanced)</option>
+                    <option value="0.1">0.1 (Slow, High Accuracy)</option>
+                </select>
+                <button class="run-btn" onclick="runNLat()">▶ Run Brute-Force Algorithm</button>
+            </div>
+            <div class="results-box" id="nlat-results">
+                <em>Click "Run" to execute the 3D spatial search...</em>
+            </div>
+            <div id="plot-nlat" class="plot-container"></div>
+        </div>
+
+        <div id="view-fing" class="view-section">
+            <div class="control-bar">
+                <label>Target Mobile RSSI:</label>
+                <span style="color:var(--yellow); font-family:monospace; margin-right: 20px;">[-26, -42, -13, -46]</span>
+                <label>K-Neighbors (N):</label>
+                <select id="fing-k">
+                    <option value="3">N = 3</option>
+                    <option value="4" selected>N = 4</option>
+                    <option value="5">N = 5</option>
+                </select>
+                <button class="run-btn" onclick="runFing()">▶ Run K-NN + IDW Algorithm</button>
+            </div>
+            <div class="results-box" id="fing-results">
+                <em>Click "Run" to match the radiomap...</em>
+            </div>
+            <div id="plot-fing" class="plot-container"></div>
+        </div>
+
+        <div id="view-hmm" class="view-section">
+            <div class="hmm-container">
+                <div class="hmm-controls">
+                    <div class="results-box" style="margin-bottom:0;">
+                        <div>From: <span id="hmm-lbl-prev" style="color:#aaa">None</span></div>
+                        <div>At : <span id="hmm-lbl-curr" style="color:var(--cyan)">0</span></div>
+                        <div style="margin-top:10px; color:var(--yellow)">Time: <span id="hmm-lbl-time">0</span>s</div>
+                    </div>
+                    <div class="btn-grid" id="hmm-buttons">
+                        <button class="hmm-btn" onclick="hmmNavigate(0)">Page 0</button>
+                        <button class="hmm-btn" onclick="hmmNavigate(1)">Page 1</button>
+                        <button class="hmm-btn" onclick="hmmNavigate(2)">Page 2</button>
+                        <button class="hmm-btn" onclick="hmmNavigate(3)">Page 3</button>
+                        <button class="hmm-btn" onclick="hmmNavigate(4)">Page 4</button>
+                        <button class="hmm-btn hmm-exit" onclick="hmmExit()">5 (Quit & Show Data)</button>
+                    </div>
+                </div>
+                <div class="hmm-display">
+                    <div id="console-view"><pre id="console-text"></pre></div>
+                    <div id="hmm-final-dashboard">
+                        <div id="hmm-network"></div>
+                        <div id="hmm-table-container"></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // --- NAVIGATION LOGIC ---
+        function switchView(viewId) {
+            document.querySelectorAll('.view-section').forEach(el => el.classList.remove('active'));
+            document.querySelectorAll('.nav-btn').forEach(el => el.classList.remove('active'));
+            document.getElementById('view-' + viewId).classList.add('active');
+            event.target.classList.add('active');
+            
+            const titles = {
+                'home': 'Welcome to the Positioning Ecosystem',
+                'nlat': '3D N-Lateration Optimization',
+                'fing': 'Static Fingerprinting (Indoor Localization)',
+                'hmm': 'HMM Mobility Prediction'
+            };
+            document.getElementById('header-title').innerText = titles[viewId];
+        }
+
+        // ==========================================
+        // MODULE 1: N-LATERATION
+        // ==========================================
+        function runNLat() {
+            let N = parseInt(document.getElementById('nlat-n').value);
+            let step = parseFloat(document.getElementById('nlat-step').value);
+            
+            // Whiteboard Data
+            let allEmitters = [
+                { id: 'E0', x: 0.5, y: 0.5, z: 0.5, d: 3.0 },
+                { id: 'E1', x: 4.0, y: 0.0, z: 0.0, d: 2.0 },
+                { id: 'E2', x: 4.0, y: 5.0, z: 5.0, d: 4.2 },
+                { id: 'E3', x: 3.0, y: 3.0, z: 3.0, d: 2.5 }
+            ];
+            let emitters = N === 3 ? allEmitters.slice(1, 4) : allEmitters;
+
+            // Calculate Bounds
+            let xmin = 999, xmax = -999, ymin = 999, ymax = -999, zmin = 999, zmax = -999;
+            emitters.forEach(e => {
+                if (e.x - e.d < xmin) xmin = e.x - e.d; if (e.x + e.d > xmax) xmax = e.x + e.d;
+                if (e.y - e.d < ymin) ymin = e.y - e.d; if (e.y + e.d > ymax) ymax = e.y + e.d;
+                if (e.z - e.d < zmin) zmin = e.z - e.d; if (e.z + e.d > zmax) zmax = e.z + e.d;
+            });
+
+            document.getElementById('nlat-results').innerHTML = "<em>Processing 3D Brute-Force Search... Please wait.</em>";
+            
+            // Use setTimeout to allow UI to update before heavy computation
+            setTimeout(() => {
+                let t0 = performance.now();
+                let bestX = 0, bestY = 0, bestZ = 0, minError = Infinity;
+
+                for (let x = xmin; x <= xmax; x += step) {
+                    for (let y = ymin; y <= ymax; y += step) {
+                        for (let z = zmin; z <= zmax; z += step) {
+                            let currentError = 0;
+                            emitters.forEach(e => {
+                                let geoDist = Math.sqrt(Math.pow(x-e.x,2) + Math.pow(y-e.y,2) + Math.pow(z-e.z,2));
+                                currentError += Math.abs(geoDist - e.d);
+                            });
+                            if (currentError < minError) {
+                                minError = currentError; bestX = x; bestY = y; bestZ = z;
+                            }
+                        }
+                    }
+                }
+                let t1 = performance.now();
+                
+                // Update Results HTML
+                document.getElementById('nlat-results').innerHTML = `
+                    Bounding Box : X[${xmin.toFixed(1)} to ${xmax.toFixed(1)}] | Y[${ymin.toFixed(1)} to ${ymax.toFixed(1)}] | Z[${zmin.toFixed(1)} to ${zmax.toFixed(1)}]<br>
+                    Estimated P^ : <span class="highlight-text">(X: ${bestX.toFixed(2)}, Y: ${bestY.toFixed(2)}, Z: ${bestZ.toFixed(2)})</span><br>
+                    Minimum Error: ${minError.toFixed(4)}<br>
+                    Exec Time    : ${(t1 - t0).toFixed(2)} ms
+                `;
+
+                plotNLat3D(emitters, bestX, bestY, bestZ);
+            }, 50);
+        }
+
+        function plotNLat3D(emitters, bX, bY, bZ) {
+            let data = [];
+            // Generate wireframe spheres for visual effect!
+            emitters.forEach((e, index) => {
+                let u = [], v = [];
+                for(let i=0; i<=15; i++) u.push(i * Math.PI / 15);
+                for(let i=0; i<=15; i++) v.push(i * 2 * Math.PI / 15);
+                let x=[], y=[], z=[];
+                for(let i=0; i<u.length; i++){
+                    let xi=[], yi=[], zi=[];
+                    for(let j=0; j<v.length; j++){
+                        xi.push(e.x + e.d * Math.sin(u[i]) * Math.cos(v[j]));
+                        yi.push(e.y + e.d * Math.sin(u[i]) * Math.sin(v[j]));
+                        zi.push(e.z + e.d * Math.cos(u[i]));
+                    }
+                    x.push(xi); y.push(yi); z.push(zi);
+                }
+                let colors = ['#1f77b4', '#ff7f0e', '#2ca02c', '#d62728'];
+                data.push({
+                    type: 'surface', x: x, y: y, z: z, opacity: 0.15,
+                    colorscale: [[0, colors[index]], [1, colors[index]]], showscale: false, hoverinfo: 'none', name: e.id
+                });
+                
+                // Plot Center Anchor Point
+                data.push({
+                    type: 'scatter3d', mode: 'markers+text', x: [e.x], y: [e.y], z: [e.z],
+                    marker: {size: 5, color: '#FFF'}, text: [`${e.id} r=${e.d}`], textposition: 'top center',
+                    textfont: {color: '#FFF'}
+                });
+            });
+
+            // Plot Estimated Target
+            data.push({
+                type: 'scatter3d', mode: 'markers+text', x: [bX], y: [bY], z: [bZ],
+                marker: {size: 10, color: '#00FF00', symbol: 'diamond'},
+                text: ['ESTIMATED P^'], textposition: 'bottom center', textfont: {color: '#00FF00', size: 14}
+            });
+
+            let layout = {
+                paper_bgcolor: 'rgba(0,0,0,0)', plot_bgcolor: 'rgba(0,0,0,0)', margin: {l:0, r:0, b:0, t:0},
+                scene: {
+                    xaxis: {color: '#555', title: {font: {color: '#FFF'}}, tickfont: {color: '#FFF'}},
+                    yaxis: {color: '#555', title: {font: {color: '#FFF'}}, tickfont: {color: '#FFF'}},
+                    zaxis: {color: '#555', title: {font: {color: '#FFF'}}, tickfont: {color: '#FFF'}}
+                },
+                showlegend: false
+            };
+            Plotly.newPlot('plot-nlat', data, layout);
+        }
+
+        // ==========================================
+        // MODULE 2: FINGERPRINTING
+        // ==========================================
+        function runFing() {
+            let K = parseInt(document.getElementById('fing-k').value);
+            let targetRssi = [-26, -42, -13, -46];
+            let grid = [
+                {id: "C1", x: 2, y: 2, rssi: [-38, -27, -54, -13]},
+                {id: "C2", x: 6, y: 2, rssi: [-74, -62, -48, -33]},
+                {id: "C3", x: 10, y: 2, rssi: [-13, -28, -12, -40]},
+                {id: "C4", x: 2, y: 6, rssi: [-34, -27, -38, -41]},
+                {id: "C5", x: 6, y: 6, rssi: [-64, -48, -72, -35]},
+                {id: "C6", x: 10, y: 6, rssi: [-45, -37, -20, -15]},
+                {id: "C7", x: 2, y: 10, rssi: [-17, -50, -44, -33]},
+                {id: "C8", x: 6, y: 10, rssi: [-27, -28, -32, -45]},
+                {id: "C9", x: 10, y: 10, rssi: [-30, -20, -60, -40]}
+            ];
+
+            let t0 = performance.now();
+            
+            // Calculate Manhattan Distances
+            grid.forEach(c => {
+                c.dist = 0;
+                for(let i=0; i<4; i++) c.dist += Math.abs(c.rssi[i] - targetRssi[i]);
+            });
+
+            // Sort and get Top K
+            grid.sort((a,b) => a.dist - b.dist);
+            let topK = grid.slice(0, K);
+
+            // IDW Barycenter
+            let sumW = 0, sumX = 0, sumY = 0;
+            let usedStr = "";
+            topK.forEach(c => {
+                usedStr += `${c.id}(Dist:${c.dist}) `;
+                let w = 1.0 / (c.dist === 0 ? 0.001 : c.dist);
+                sumW += w; sumX += c.x * w; sumY += c.y * w;
+            });
+            let estX = sumX / sumW; let estY = sumY / sumW;
+            
+            let t1 = performance.now();
+
+            document.getElementById('fing-results').innerHTML = `
+                Neighbors Used: <span style="color:#aaa">${usedStr}</span><br>
+                Estimated P^  : <span class="highlight-text">(X: ${estX.toFixed(2)}, Y: ${estY.toFixed(2)})</span><br>
+                Exec Time     : ${(t1 - t0).toFixed(4)} ms
+            `;
+
+            plotFing2D(grid, topK, estX, estY);
+        }
+
+        function plotFing2D(allGrid, topK, eX, eY) {
+            // Plotly 2D Scatter
+            let traceAll = {
+                x: allGrid.map(c=>c.x), y: allGrid.map(c=>c.y), text: allGrid.map(c=>c.id),
+                mode: 'markers+text', type: 'scatter', textposition: 'top center',
+                marker: {size: 10, color: '#555'}, name: 'Offline DB Cells'
+            };
+            let traceK = {
+                x: topK.map(c=>c.x), y: topK.map(c=>c.y), text: topK.map(c=>c.id),
+                mode: 'markers', type: 'scatter',
+                marker: {size: 18, color: '#1f77b4', line: {color:'#00FFFF', width:2}}, name: 'K-Nearest'
+            };
+            let traceEst = {
+                x: [eX], y: [eY], mode: 'markers+text', type: 'scatter', text: ['P^ Estimate'], textposition: 'bottom center',
+                marker: {size: 25, color: '#00FF00', symbol: 'star'}, name: 'Estimate'
+            };
+
+            let layout = {
+                paper_bgcolor: 'rgba(0,0,0,0)', plot_bgcolor: '#0a0a0a',
+                xaxis: {range: [0, 12], gridcolor: '#333', title: 'Distance X (m)', color: '#FFF'},
+                yaxis: {range: [0, 12], gridcolor: '#333', title: 'Distance Y (m)', color: '#FFF'},
+                legend: {font: {color: '#FFF'}}
+            };
+
+            Plotly.newPlot('plot-fing', [traceAll, traceK, traceEst], layout);
+        }
+
+        // ==========================================
+        // MODULE 3: HIDDEN MARKOV MODELS
+        // ==========================================
+        class HMMSystem {
+            constructor() {
+                this.size = 6; this.nb = 5;
+                this.matrix = Array.from({length: this.size}, () => Array.from({length: this.size}, () => ({nb:0, n:0, p:0})));
+                this.time = Array(5).fill(0); this.time[0] = 30; this.totalTime = 30;
+                this.curr = 0; this.prev = -1;
+                this.log = "=== HMM REPL Initialized ===\n\n";
+            }
+            navigate(next) {
+                this.log += `${next}\n\n`; // log choice
+                
+                this.matrix[this.curr][next].nb++;
+                this.matrix[this.curr][5].nb++;
+                this.matrix[5][next].nb++;
+
+                for(let k=0; k<5; k++) {
+                    if(this.matrix[this.curr][5].nb > 0) this.matrix[this.curr][k].n = this.matrix[this.curr][k].nb / this.matrix[this.curr][5].nb;
+                    if(this.matrix[5][next].nb > 0) this.matrix[k][next].p = this.matrix[k][next].nb / this.matrix[5][next].nb;
+                }
+                
+                this.time[next] += 30; this.totalTime += 30;
+                this.prev = this.curr; this.curr = next;
+                
+                this.log += this.getAsciiTable() + "\n\n";
+                this.printPrompt();
+            }
+            printPrompt() {
+                this.log += `From: ${this.prev === -1 ? 'None' : this.prev}\nAt  : ${this.curr}\nGo (0-4 or 5): `;
+                document.getElementById('console-text').innerText = this.log;
+                let v = document.getElementById('console-view'); v.scrollTop = v.scrollHeight;
+                
+                document.getElementById('hmm-lbl-prev').innerText = this.prev === -1 ? 'None' : this.prev;
+                document.getElementById('hmm-lbl-curr').innerText = this.curr;
+                document.getElementById('hmm-lbl-time').innerText = this.totalTime;
+            }
+            getAsciiTable() {
+                let out = "From \\ To | Page 0          | Page 1          | Page 2          | Page 3          | Page 4          | Somme\n";
+                let sep = "----------+------------------+------------------+------------------+------------------+------------------+-------\n";
+                out += sep;
+                for(let i=0; i<5; i++) {
+                    out += `Page ${i}    | `;
+                    for(let j=0; j<5; j++) {
+                        let cell = this.matrix[i][j];
+                        out += `Nb=${cell.nb.toString().padEnd(2)} Y:${Math.round(cell.n*100).toString().padStart(3)}% R:${Math.round(cell.p*100).toString().padStart(3)}% | `;
+                    }
+                    out += `Nb=${this.matrix[i][5].nb}\n`;
+                }
+                out += sep + "Somme     | ";
+                for(let j=0; j<5; j++) out += `Nb=${this.matrix[5][j].nb.toString().padEnd(16)} | `;
+                return out + "-\n";
+            }
+        }
+        
+        const hmmSys = new HMMSystem();
+        setTimeout(() => hmmSys.printPrompt(), 500); // Init on load
+
+        function hmmNavigate(n) { hmmSys.navigate(n); }
+        function hmmExit() {
+            hmmSys.log += "5\nGenerating Graph...\n"; hmmSys.printPrompt();
+            document.querySelectorAll('.hmm-btn').forEach(b => b.disabled = true);
+            document.getElementById('hmm-lbl-curr').innerText = "EXITED"; document.getElementById('hmm-lbl-curr').style.color = "red";
+            
+            setTimeout(() => {
+                document.getElementById('console-view').style.display = "none";
+                document.getElementById('hmm-final-dashboard').style.display = "flex";
+                drawHMMGraph();
+                drawHMMTable();
+            }, 600);
+        }
+
+        function drawHMMGraph() {
+            let nodes = new vis.DataSet(); let edges = new vis.DataSet();
+            for(let i=0; i<5; i++) {
+                let angle = (i * 2 * Math.PI / 5) - (Math.PI / 2);
+                nodes.add({ id: i, label: 'Page '+i, x: Math.cos(angle)*150, y: Math.sin(angle)*150, fixed: true, 
+                            shape: 'circle', color: {background: '#1f77b4', border: '#FFF'}, font: {color: '#FFF', size: 16} });
+            }
+            for(let i=0; i<5; i++) {
+                for(let j=0; j<5; j++) {
+                    let cell = hmmSys.matrix[i][j];
+                    if(cell.nb > 0) {
+                        edges.add({
+                            from: i, to: j, label: `N: ${Math.round(cell.n*100)}%\nP: ${Math.round(cell.p*100)}%`,
+                            arrows: 'to', color: {color: '#AAA', highlight: '#0F0'}, width: Math.max(1, cell.n*5),
+                            font: {color: '#0F0', size: 12, background: 'rgba(0,0,0,0.8)'}, smooth: {type: 'curvedCW', roundness: 0.2}
+                        });
+                    }
+                }
+            }
+            new vis.Network(document.getElementById('hmm-network'), {nodes, edges}, {physics: false});
+        }
+
+        function drawHMMTable() {
+            let html = `<table class="hmm-table"><tr><th>From \\ To</th>`;
+            for (let j=0; j<5; j++) html += `<th>Page ${j}</th>`;
+            html += `<th class="somme-cell">Somme</th></tr>`;
+            for (let i=0; i<5; i++) {
+                html += `<tr><th>Page ${i}</th>`;
+                for (let j=0; j<5; j++) {
+                    let c = hmmSys.matrix[i][j];
+                    html += `<td><div class="nb">Nb = ${c.nb}</div><div class="next">Next: ${Math.round(c.n*100)}%</div><div class="prev">Prev: ${Math.round(c.p*100)}%</div></td>`;
+                }
+                html += `<th class="somme-cell">Nb = ${hmmSys.matrix[i][5].nb}</th></tr>`;
+            }
+            html += `<tr><th class="somme-cell">Somme (Col)</th>`;
+            for (let j=0; j<5; j++) html += `<th class="somme-cell">Nb = ${hmmSys.matrix[5][j].nb}</th>`;
+            html += `<th class="somme-cell">-</th></tr></table>`;
+            document.getElementById('hmm-table-container').innerHTML = html;
+        }
+    </script>
+</body>
+</html>
